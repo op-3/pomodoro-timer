@@ -27,6 +27,7 @@
 		"bits-ui": "^0.21.13",
 		"chart.js": "^4.4.3",
 		"clsx": "^2.1.1",
+		"lite-youtube-embed": "^0.3.2",
 		"lucide-svelte": "^0.419.0",
 		"svelte-sonner": "^0.3.27",
 		"tailwind-merge": "^2.4.0",
