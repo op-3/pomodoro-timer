@@ -1,4 +1,3 @@
-<!-- src/lib/components/Notification.svelte -->
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { Alert, AlertDescription } from "$lib/components/ui/alert";

@@ -1,16 +1,19 @@
 <script lang="ts">
     import { Button } from "$lib/components/ui/button";
     import { Progress } from "$lib/components/ui/progress";
-    import { onMount } from "svelte";
+    import { onMount, afterUpdate } from "svelte";
     import Notification from '../lib/components/Notification.svelte';
     import TodoList from '../lib/components/TodoList.svelte';
     import Settings from '../lib/components/Settings.svelte';
+    import Analytics from '../lib/components/Analytics.svelte';
     import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
     import { Play, Pause, RotateCcw } from 'lucide-svelte';
     import { Moon, Sun, Settings as SettingsIcon } from 'lucide-svelte';
+    
     const dispatch = createEventDispatcher();
 
+    // Local Storage functions
     function saveToLocalStorage(key: string, value: any) {
         if (browser) {
             localStorage.setItem(key, JSON.stringify(value));
@@ -25,6 +28,7 @@
         return defaultValue;
     }
 
+    // Timer settings
     let workTime = 25;
     let shortBreakTime = 5;
     let longBreakTime = 15;
@@ -36,14 +40,14 @@
     let alarmSound = "bell";
     let workVideo = 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
     let breakVideo = 'https://www.youtube.com/watch?v=wxnsKBFsPTU';
-    let currentVideo: string;
-    let playerWidth = '100%'; // يمكنك تعديل هذه القيمة حسب الحاجة
-    let playerHeight = '100%'; // الحفاظ على نسبة 16:9
     let showVideoPlayer = true;
     let playerVolume = 50;
     let isMuted = false;
     let showSettings = false;
+    let playerWidth = '100%';
+    let playerHeight = '100%';
 
+    // Timer state
     let timeLeft: number;
     let isRunning = false;
     let progress = 100;
@@ -54,9 +58,21 @@
     let notificationMessage = '';
     let isFirstStart = true;
     let initialTime: number;
+
+    // YouTube player
     let player: any;
     let isMobile: boolean;
 
+    // Analytics data
+    let totalFocusTime = 0;
+    let totalSessions = 0;
+    let totalTasks = 0;
+    let completedTasks = 0;
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let lastCompletedDate: Date | null = null;
+    let focusTimer: number;
+    let currentSessionTime = 0;
 
     $: WORK_TIME = workTime * 60;
     $: SHORT_BREAK_TIME = shortBreakTime * 60;
@@ -77,9 +93,11 @@
             saveToLocalStorage('isFirstStart', isFirstStart);
         }
     }
+
     function checkMobile() {
-        isMobile = window.innerWidth < 768; // اعتبار الشاشة محمولة إذا كان العرض أقل من 768 بكسل
+        isMobile = window.innerWidth < 768;
     }
+
     function toggleMute() {
         if (player && typeof player.mute === 'function' && typeof player.unMute === 'function') {
             if (isMuted) {
@@ -91,15 +109,21 @@
             isMuted = !isMuted;
         }
     }
+
     function toggleDarkMode() {
         darkMode = !darkMode;
         saveToLocalStorage('darkMode', darkMode);
-        if (darkMode) {
+        applyDarkMode(darkMode);
+    }
+
+    function applyDarkMode(isDark: boolean) {
+        if (isDark) {
             document.documentElement.classList.add('dark');
         } else {
             document.documentElement.classList.remove('dark');
         }
     }
+
     function setVolume(volume: number) {
         if (player && typeof player.setVolume === 'function') {
             player.setVolume(volume);
@@ -114,7 +138,15 @@
         if (!isRunning) {
             isRunning = true;
             isFirstStart = false;
-            runTimer();
+            currentSessionTime = 0;
+            focusTimer = setInterval(() => {
+                currentSessionTime++;
+                timeLeft--;
+                updateProgress();
+                if (timeLeft <= 0) {
+                    handleSessionEnd();
+                }
+            }, 1000);
             saveTimerState();
             if (player && typeof player.playVideo === 'function') {
                 player.playVideo();
@@ -122,30 +154,20 @@
         }
     }
 
-    function runTimer() {
-        timer = setInterval(() => {
-            if (timeLeft > 0) {
-                timeLeft--;
-                updateProgress();
-                saveTimerState();
-            } else {
-                clearInterval(timer);
-                isRunning = false;
-                handleSessionEnd();
-            }
-        }, 1000);
-    }
-
     function stopTimer() {
-        clearInterval(timer);
+        clearInterval(focusTimer);
         isRunning = false;
+        const actualSessionTime = initialTime - timeLeft;
+        addFocusTime(actualSessionTime);
         saveTimerState();
         if (player && typeof player.pauseVideo === 'function') {
             player.pauseVideo();
         }
     }
+    
+
     function resetTimer() {
-        clearInterval(timer);
+        clearInterval(focusTimer);
         isRunning = false;
         isFirstStart = true;
         sessionCount = 0;
@@ -154,13 +176,16 @@
     }
 
     function handleSessionEnd() {
+        clearInterval(focusTimer);
+        const actualSessionTime = initialTime - timeLeft;
+        addFocusTime(actualSessionTime);
         if (currentMode === 'work') {
             sessionCount++;
             if (sessionCount % SESSIONS_BEFORE_LONG_BREAK === 0) {
                 setMode('longBreak');
             } else {
                 setMode('shortBreak');
-            }
+         }
         } else {
             setMode('work');
         }
@@ -175,19 +200,20 @@
         switch (mode) {
             case 'work':
                 timeLeft = WORK_TIME;
-                notificationMessage = 'بدأت جلسة العمل';
+                notificationMessage = 'The work session has begun';
                 break;
             case 'shortBreak':
                 timeLeft = SHORT_BREAK_TIME;
-                notificationMessage = 'بدأت الاستراحة القصيرة';
+                notificationMessage = 'The short break has begun';
                 break;
             case 'longBreak':
                 timeLeft = LONG_BREAK_TIME;
-                notificationMessage = 'بدأت الاستراحة الطويلة';
+                notificationMessage = 'The long break has begun';
                 break;
         }
+        initialTime = timeLeft;
         isRunning = false;
-        clearInterval(timer);
+        clearInterval(focusTimer);
         showNotification = true;
         updateProgress();
         if (notifications) {
@@ -202,11 +228,12 @@
             player.pauseVideo();
         }
     }
+
     function updateProgress() {
-    const totalTime = currentMode === 'work' ? WORK_TIME : 
-                      currentMode === 'shortBreak' ? SHORT_BREAK_TIME : LONG_BREAK_TIME;
-    progress = (timeLeft / totalTime) * 100;
-}
+        const totalTime = currentMode === 'work' ? WORK_TIME : 
+                        currentMode === 'shortBreak' ? SHORT_BREAK_TIME : LONG_BREAK_TIME;
+        progress = (timeLeft / totalTime) * 100;
+    }
 
     function formatTime(seconds: number) {
         if (isNaN(seconds) || seconds < 0) {
@@ -218,8 +245,8 @@
     }
 
     function playAlarmSound() {
-        // تنفيذ منطق تشغيل الصوت هنا
-        console.log(`تشغيل صوت ${alarmSound}`);
+        // Implement alarm sound logic here
+        console.log(`Playing ${alarmSound} sound`);
     }
 
     function extractVideoId(url: string): string {
@@ -242,36 +269,118 @@
         breakVideo = newSettings.breakVideo;
         showVideoPlayer = newSettings.showVideoPlayer;
 
-        if (browser) {
-            saveToLocalStorage('workTime', workTime);
-            saveToLocalStorage('shortBreakTime', shortBreakTime);
-            saveToLocalStorage('longBreakTime', longBreakTime);
-            saveToLocalStorage('sessionsBeforeLongBreak', sessionsBeforeLongBreak);
-            saveToLocalStorage('notifications', notifications);
-            saveToLocalStorage('autoStartBreaks', autoStartBreaks);
-            saveToLocalStorage('autoStartPomodoros', autoStartPomodoros);
-            saveToLocalStorage('alarmSound', alarmSound);
-            saveToLocalStorage('workVideo', workVideo);
-            saveToLocalStorage('breakVideo', breakVideo);
-            saveToLocalStorage('showVideoPlayer', showVideoPlayer);
-        }
+        saveToLocalStorage('workTime', workTime);
+        saveToLocalStorage('shortBreakTime', shortBreakTime);
+        saveToLocalStorage('longBreakTime', longBreakTime);
+        saveToLocalStorage('sessionsBeforeLongBreak', sessionsBeforeLongBreak);
+        saveToLocalStorage('notifications', notifications);
+        saveToLocalStorage('autoStartBreaks', autoStartBreaks);
+        saveToLocalStorage('autoStartPomodoros', autoStartPomodoros);
+        saveToLocalStorage('alarmSound', alarmSound);
+        saveToLocalStorage('workVideo', workVideo);
+        saveToLocalStorage('breakVideo', breakVideo);
+        saveToLocalStorage('showVideoPlayer', showVideoPlayer);
 
-        // تحديث القيم المستخدمة في التايمر
+        // Update timer values
         WORK_TIME = workTime * 60;
         SHORT_BREAK_TIME = shortBreakTime * 60;
         LONG_BREAK_TIME = longBreakTime * 60;
         SESSIONS_BEFORE_LONG_BREAK = sessionsBeforeLongBreak;
 
-        // إعادة ضبط الوقت الحالي إذا لم يكن التايمر قيد التشغيل
+        // Reset current timer if not running
         if (!isRunning) {
             setMode(currentMode);
         } else {
-            // إذا كان التايمر قيد التشغيل، قم بتحديث التقدم فقط
             updateProgress();
         }
 
         showSettings = false;
     }
+
+    // Analytics functions
+    function updateAnalytics() {
+        if (browser) {
+            totalFocusTime = parseInt(localStorage.getItem('totalFocusTime') || '0');
+            totalSessions = parseInt(localStorage.getItem('totalSessions') || '0');
+            totalTasks = parseInt(localStorage.getItem('totalTasks') || '0');
+            completedTasks = parseInt(localStorage.getItem('completedTasks') || '0');
+            currentStreak = parseInt(localStorage.getItem('currentStreak') || '0');
+            longestStreak = parseInt(localStorage.getItem('longestStreak') || '0');
+            lastCompletedDate = localStorage.getItem('lastCompletedDate') ? new Date(localStorage.getItem('lastCompletedDate')) : null;
+        }
+    }
+
+    function saveAnalytics() {
+        if (browser) {
+            localStorage.setItem('totalFocusTime', totalFocusTime.toString());
+            localStorage.setItem('totalSessions', totalSessions.toString());
+            localStorage.setItem('totalTasks', totalTasks.toString());
+            localStorage.setItem('completedTasks', completedTasks.toString());
+            localStorage.setItem('currentStreak', currentStreak.toString());
+            localStorage.setItem('longestStreak', longestStreak.toString());
+            if (lastCompletedDate) {
+                localStorage.setItem('lastCompletedDate', lastCompletedDate.toISOString());
+            }
+        }
+    }
+
+    function addFocusTime(seconds: number) {
+        totalFocusTime += seconds;
+        totalSessions++;
+        updateWeeklyProductivity(seconds);
+        updateStreak();
+        saveAnalytics();
+    }
+
+    function updateWeeklyProductivity(seconds: number) {
+        const weeklyProductivity = JSON.parse(localStorage.getItem('weeklyProductivity') || '{}');
+        const today = new Date().toISOString().split('T')[0];
+        weeklyProductivity[today] = (weeklyProductivity[today] || 0) + seconds;
+        
+        const lastWeek = Object.entries(weeklyProductivity)
+            .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+            .slice(0, 7);
+        
+        localStorage.setItem('weeklyProductivity', JSON.stringify(Object.fromEntries(lastWeek)));
+    }
+
+    function updateStreak() {
+        const today = new Date();
+        if (lastCompletedDate) {
+            const dayDiff = (today.getTime() - lastCompletedDate.getTime()) / (1000 * 3600 * 24);
+            if (dayDiff <= 1) {
+                currentStreak++;
+            } else {
+                currentStreak = 1;
+            }
+        } else {
+            currentStreak = 1;
+        }
+        lastCompletedDate = today;
+        
+        if (currentStreak > longestStreak) {
+            longestStreak = currentStreak;
+        }
+    }
+
+    function addTask() {
+        totalTasks++;
+        saveAnalytics();
+    }
+
+    function completeTask() {
+        completedTasks++;
+        saveAnalytics();
+    }
+
+    function removeTask(wasCompleted: boolean) {
+        totalTasks--;
+        if (wasCompleted) {
+            completedTasks--;
+        }
+        saveAnalytics();
+    }
+
     onMount(() => {
         if (browser) {
             workTime = getFromLocalStorage('workTime', 25);
@@ -286,7 +395,6 @@
             workVideo = getFromLocalStorage('workVideo', 'https://www.youtube.com/watch?v=jfKfPfyJRdk');
             breakVideo = getFromLocalStorage('breakVideo', 'https://www.youtube.com/watch?v=wxnsKBFsPTU');
             showVideoPlayer = getFromLocalStorage('showVideoPlayer', true);
-
             
             currentMode = getFromLocalStorage('currentMode', 'work');
             sessionCount = getFromLocalStorage('sessionCount', 0);
@@ -294,6 +402,8 @@
             initialTime = getFromLocalStorage('initialTime', WORK_TIME);
             timeLeft = getFromLocalStorage('timeLeft', initialTime);
             isRunning = getFromLocalStorage('isRunning', false);
+            
+            updateAnalytics();
 
             // Ensure timeLeft is not greater than initialTime and not negative
             if (timeLeft > initialTime || timeLeft < 0) {
@@ -302,63 +412,101 @@
 
             updateProgress();
 
-            // تحميل YouTube IFrame API
+            // Load YouTube IFrame API
             const tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
             const firstScriptTag = document.getElementsByTagName('script')[0];
             firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
             window.onYouTubeIframeAPIReady = () => {
-            player = new YT.Player('player', {
-                width: playerWidth,
-                height: playerHeight,
-                videoId: extractVideoId(currentMode === 'work' ? workVideo : breakVideo),
-                playerVars: {
-                    'playsinline': 1,
-                    'controls': 0,
-                    'disablekb': 1,
-                    'autoplay': 0, // عدم التشغيل التلقائي
-                },
-                events: {
-                    'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange
-                }
-            });
-        };
- function onPlayerStateChange(event) {
-            // إذا انتهى الفيديو، قم بإعادة تشغيله إذا كان التايمر لا يزال قيد التشغيل
-            if (event.data === YT.PlayerState.ENDED && isRunning) {
-                player.playVideo();
-            }
-        }
+                player = new YT.Player('player', {
+                    width: playerWidth,
+                    height: playerHeight,
+                    videoId: extractVideoId(currentMode === 'work' ? workVideo : breakVideo),
+                    playerVars: {
+                        'playsinline': 1,
+                        'controls': 0,
+                        'disablekb': 1,
+                        'autoplay': 0,
+                    },
+                    events: {
+                        'onReady': onPlayerReady,
+                        'onStateChange': onPlayerStateChange
+                    }
+                });
+            };
 
-        function onPlayerReady(event) {
-        setVolume(playerVolume);
-        if (isRunning) {
-            event.target.playVideo();
-        } else {
-            event.target.pauseVideo();
-        }
-    }
+            function onPlayerStateChange(event) {
+                if (event.data === YT.PlayerState.ENDED && isRunning) {
+                    player.playVideo();
+                }
+            }
+
+            function onPlayerReady(event) {
+                setVolume(playerVolume);
+                if (isRunning) {
+                    event.target.playVideo();
+                } else {
+                    event.target.pauseVideo();
+                }
+            }
 
             if (isRunning) {
-                runTimer();
+                startTimer();
             }
         }
-        return () => {
-            clearInterval(timer);
-            saveTimerState();
-        };
-        if (darkMode) {
-      document.documentElement.classList.add('dark');
-    }
-    checkMobile();
+
+        applyDarkMode(darkMode);
+        checkMobile();
         window.addEventListener('resize', checkMobile);
 
         return () => {
+            clearInterval(focusTimer);
+            saveTimerState();
             window.removeEventListener('resize', checkMobile);
         };
     });
+
+    afterUpdate(() => {
+        applyDarkMode(darkMode);
+    });
+
+    // TodoList related functions
+    function handleAddTodo() {
+        addTask();
+    }
+
+    function handleCompleteTodo() {
+        completeTask();
+    }
+
+    function handleUncompleteTodo() {
+        completedTasks--;
+        saveAnalytics();
+    }
+
+    function handleRemoveTask(event: CustomEvent<{ wasCompleted: boolean }>) {
+        removeTask(event.detail.wasCompleted);
+    }
+
+    // Expose functions to be used in the component's markup
+    const timerFunctions = {
+        startTimer,
+        stopTimer,
+        resetTimer,
+        setMode,
+        toggleDarkMode,
+        toggleSettings,
+        toggleMute,
+        setVolume,
+    };
+
+    const analyticsFunctions = {
+        addFocusTime,
+        addTask,
+        completeTask,
+        removeTask,
+    };
 </script>
 
 <div class="flex h-screen bg-gray-100 dark:bg-gray-900 transition-colors duration-300" class:dark={darkMode}>
@@ -427,9 +575,23 @@
     <!-- Todo List -->
     <div class="w-2/3 p-4">
         <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6 h-full overflow-auto transition-colors duration-300">
-            <TodoList />
+            <TodoList 
+    on:addTask={handleAddTodo}
+    on:completeTask={handleCompleteTodo}
+    on:uncompleteTask={handleUncompleteTodo}
+    on:removeTask={handleRemoveTask}
+/>
         </div>
     </div>
+</div>
+ 
+ <div class="w-full p-4">
+    <Analytics 
+    {totalFocusTime}
+    {totalTasks}
+    {completedTasks}
+    {longestStreak}
+/>
 </div>
 
 <!-- Floating buttons for Dark Mode and Settings -->

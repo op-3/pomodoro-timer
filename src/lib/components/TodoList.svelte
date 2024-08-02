@@ -7,6 +7,8 @@
     import { flip } from 'svelte/animate';
     import { onMount } from "svelte";
     import { browser } from '$app/environment';
+    import { createEventDispatcher } from 'svelte';
+    const dispatch = createEventDispatcher();
 
     let todos: { id: number; text: string; completed: boolean }[] = [];
     let newTodoText = "";
@@ -32,20 +34,34 @@
             todos = [{ id: Date.now(), text: newTodoText.trim(), completed: false }, ...todos];
             newTodoText = "";
             saveTodos();
+            dispatch('addTask');
         }
     }
 
     function deleteTodo(id: number) {
+        const todoToDelete = todos.find(todo => todo.id === id);
+        if (todoToDelete) {
+            dispatch('removeTask', { wasCompleted: todoToDelete.completed });
+        }
         todos = todos.filter(todo => todo.id !== id);
         saveTodos();
     }
 
     function toggleTodo(id: number) {
-        todos = todos.map(todo => 
-            todo.id === id ? { ...todo, completed: !todo.completed } : todo
-        );
+        todos = todos.map(todo => {
+            if (todo.id === id) {
+                if (!todo.completed) {
+                    dispatch('completeTask');
+                } else {
+                    dispatch('uncompleteTask');
+                }
+                return { ...todo, completed: !todo.completed };
+            }
+            return todo;
+        });
         saveTodos();
     }
+    
 
     function clearCompleted() {
         todos = todos.filter(todo => !todo.completed);
@@ -146,7 +162,3 @@
         </div>
     {/if}
 </div>
-
-<style>
-    /* Можете добавить дополнительные стили здесь, если необходимо */
-</style>
