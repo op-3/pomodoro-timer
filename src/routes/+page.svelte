@@ -254,7 +254,6 @@
         const match = url.match(regExp);
         return (match && match[2].length === 11) ? match[2] : "";
     }
-
     function handleSaveSettings(event: CustomEvent) {
         const newSettings = event.detail;
         workTime = newSettings.workTime;
@@ -428,12 +427,14 @@
                         'controls': 0,
                         'disablekb': 1,
                         'autoplay': 0,
+                        'origin': window.location.origin,
+                        'host': 'https://www.youtube-nocookie.com'
                     },
-                    events: {
-                        'onReady': onPlayerReady,
-                        'onStateChange': onPlayerStateChange
-                    }
-                });
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
             };
 
             function onPlayerStateChange(event) {
